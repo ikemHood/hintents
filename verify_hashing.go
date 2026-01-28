@@ -1,3 +1,6 @@
+// Copyright 2025 Erst Users
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
@@ -8,7 +11,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Comprehensive Hash Consistency Verification ===\n")
+	fmt.Println("=== Comprehensive Hash Consistency Verification ===")
 
 	tests := []struct {
 		name     string
