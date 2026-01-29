@@ -51,7 +51,7 @@ export class URIParser {
                 throw new Error('Missing transaction hash in URI');
             }
 
-            const transactionHash = pathParts[0];
+            const transactionHash = decodeURIComponent(pathParts[0]);
 
             // Validate transaction hash format (64 hex characters)
             if (!/^[a-f0-9]{64}$/i.test(transactionHash)) {
