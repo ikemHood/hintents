@@ -138,11 +138,19 @@ func TestMockServer_RequestTrackingVerification(t *testing.T) {
 
 	// Make several requests
 	for i := 0; i < 5; i++ {
-		http.Get(mockServer.URL() + "/transactions/abc")
+		resp, err := http.Get(mockServer.URL() + "/transactions/abc")
+		if err != nil {
+			t.Fatalf("failed to make request: %v", err)
+		}
+		resp.Body.Close()
 	}
 
 	for i := 0; i < 3; i++ {
-		http.Get(mockServer.URL() + "/accounts/xyz")
+		resp, err := http.Get(mockServer.URL() + "/accounts/xyz")
+		if err != nil {
+			t.Fatalf("failed to make request: %v", err)
+		}
+		resp.Body.Close()
 	}
 
 	// Verify call counts

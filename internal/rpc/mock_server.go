@@ -6,6 +6,7 @@ package rpc
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -60,10 +61,12 @@ func (ms *MockServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 	if !exists {
 		// Return 404 for unmapped endpoints
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{
+		if err := json.NewEncoder(w).Encode(map[string]string{
 			"status": "error",
 			"detail": fmt.Sprintf("endpoint not found: %s", r.RequestURI),
-		})
+		}); err != nil {
+			log.Printf("failed to encode response: %v", err)
+		}
 		return
 	}
 
