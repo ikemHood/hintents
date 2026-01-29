@@ -1,3 +1,6 @@
+// Copyright (c) 2026 dotandev
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // Code generated from JSON Schema using quicktype. DO NOT EDIT.
 // To parse and unparse this JSON data, add this code to your project and do:
 //

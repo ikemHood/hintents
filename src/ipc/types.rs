@@ -1,3 +1,6 @@
+// Copyright (c) 2026 dotandev
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // Example code that deserializes and serializes the model.
 // extern crate serde;
 // #[macro_use]

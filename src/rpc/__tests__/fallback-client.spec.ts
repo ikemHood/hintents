@@ -1,3 +1,6 @@
+// Copyright (c) 2026 dotandev
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 import { FallbackRPCClient } from '../fallback-client';
 import { RPCConfig } from '../../config/rpc-config';
 import axios from 'axios';

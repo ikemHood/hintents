@@ -1,3 +1,6 @@
+// Copyright (c) 2026 dotandev
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { RPCConfig } from '../config/rpc-config';
 
@@ -70,10 +73,11 @@ export class FallbackRPCClient {
                 endpoint.totalRequests++;
                 console.log(`🔄 Attempting RPC request to: ${endpoint.url}`);
 
+                const requestStartTime = Date.now();
                 const client = this.clients.get(endpoint.url)!;
                 const response = await this.executeWithRetry(client, path, data);
 
-                const duration = Date.now() - startTime;
+                const duration = Date.now() - requestStartTime;
                 this.updateMetrics(endpoint, duration, true);
 
                 // Success! Mark endpoint as healthy and reset to primary
@@ -86,21 +90,23 @@ export class FallbackRPCClient {
 
             } catch (error) {
                 lastError = error as Error;
-                const duration = Date.now() - startTime;
+                const duration = Date.now() - startTime; // Overall duration for this endpoint attempt (including retries)
                 this.updateMetrics(endpoint, duration, false);
 
                 // Determine if this is a retryable error
                 if (this.isRetryableError(error)) {
                     console.warn(`⚠️  RPC request failed: ${endpoint.url}`);
-                    console.warn(`   Error: ${(error as any).message}`);
+                    console.warn(`   Error: ${(error as any).message || 'Unknown network error'}`);
 
                     // Mark endpoint as failed
                     this.markFailure(endpoint);
 
-                    // Continue to next endpoint
+                    // Continue to next endpoint in fallback list
                     continue;
                 } else {
-                    // Non-retryable error (e.g., bad request) - throw immediately
+                    // Non-retryable error (e.g., bad request 4xx) - mark failure but throw immediately
+                    // as secondary RPCs likely won't help with 4xx
+                    this.markFailure(endpoint);
                     throw error;
                 }
             }
@@ -211,31 +217,40 @@ export class FallbackRPCClient {
      * Determine if error is retryable
      */
     private isRetryableError(error: any): boolean {
+        // Handle axios errors
         if (axios.isAxiosError(error)) {
             const axiosError = error as AxiosError;
 
-            // Network errors
-            if (axiosError.code === 'ECONNREFUSED' ||
-                axiosError.code === 'ENOTFOUND' ||
-                axiosError.code === 'ETIMEDOUT' ||
-                axiosError.code === 'ECONNRESET') {
-                return true;
+            // Network errors or timeout
+            if (!axiosError.response) {
+                return true; // No response usually means network/timeout issue
             }
 
-            // Timeout errors - Fix: initially forgot to handle axios specific aborts
-            if (axiosError.code === 'ECONNABORTED') {
+            // Explicit codes
+            const retryableCodes = [
+                'ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET',
+                'ECONNABORTED', 'ERR_NETWORK'
+            ];
+
+            if (axiosError.code && retryableCodes.includes(axiosError.code)) {
                 return true;
             }
 
             // HTTP 5xx errors (server errors)
-            if (axiosError.response && axiosError.response.status >= 500) {
+            if (axiosError.response.status >= 500) {
                 return true;
             }
 
             // HTTP 429 (rate limit)
-            if (axiosError.response && axiosError.response.status === 429) {
+            if (axiosError.response.status === 429) {
                 return true;
             }
+        }
+
+        // Generic network error check (for mock adapter or non-axios wrapped errors)
+        const message = (error as Error)?.message?.toLowerCase() || '';
+        if (message.includes('network error') || message.includes('timeout')) {
+            return true;
         }
 
         return false;
