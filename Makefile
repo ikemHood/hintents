@@ -1,7 +1,8 @@
-# Makefile for Erst CLI
+.PHONY: build test lint lint-unused test-unused validate-ci validate-interface clean
+.PHONY: build test lint lint-unused test-unused validate-ci clean
+.PHONY: build test lint validate-errors clean
 
 # Build variables
-BINARY_NAME=erst
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT_SHA?=$(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE?=$(shell date -u +"%Y-%m-%d %H:%M:%S UTC")
@@ -11,36 +12,47 @@ LDFLAGS=-ldflags "-X 'github.com/dotandev/hintents/internal/cmd.Version=$(VERSIO
                   -X 'github.com/dotandev/hintents/internal/cmd.CommitSHA=$(COMMIT_SHA)' \
                   -X 'github.com/dotandev/hintents/internal/cmd.BuildDate=$(BUILD_DATE)'"
 
-.PHONY: build clean test help
-
-# Default target
-all: build
-
-# Build the binary
+# Build the main binary
 build:
-	@echo "Building $(BINARY_NAME)..."
-	@go build $(LDFLAGS) -o $(BINARY_NAME) ./cmd/erst
+	go build $(LDFLAGS) -o bin/erst ./cmd/erst
 
 # Build for release (optimized)
 build-release:
-	@echo "Building $(BINARY_NAME) for release..."
-	@go build $(LDFLAGS) -ldflags "-s -w" -o $(BINARY_NAME) ./cmd/erst
+	go build $(LDFLAGS) -ldflags "-s -w" -o bin/erst ./cmd/erst
 
 # Run tests
 test:
-	@echo "Running tests..."
-	@go test ./...
+	go test ./...
+
+# Run full linter suite
+lint:
+	golangci-lint run
+
+# Run unused code detection
+lint-unused:
+	./scripts/lint-unused.sh
+
+# Test unused code detection setup
+test-unused:
+	./scripts/test-unused-detection.sh
+
+# Validate CI/CD configuration
+validate-ci:
+	./scripts/validate-ci.sh
+# Validate error standardization
+validate-errors:
+	./scripts/validate-errors.sh
+
+# Validate interface implementation
+validate-interface:
+	./scripts/validate-interface.sh
 
 # Clean build artifacts
 clean:
-	@echo "Cleaning..."
-	@rm -f $(BINARY_NAME)
+	rm -rf bin/
+	go clean -cache
 
-# Show help
-help:
-	@echo "Available targets:"
-	@echo "  build         - Build the binary with version info"
-	@echo "  build-release - Build optimized binary for release"
-	@echo "  test          - Run tests"
-	@echo "  clean         - Remove build artifacts"
-	@echo "  help          - Show this help"
+# Install dependencies
+deps:
+	go mod tidy
+	go mod download
