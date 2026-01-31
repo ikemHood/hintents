@@ -1,3 +1,6 @@
+// Copyright (c) 2026 dotandev
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // Change these back to end with .ts
 import { generateAuditKeys } from '../src/utils/cryptoUtils.ts';
 import { AuditLogger } from '../src/audit/AuditLogger.ts';

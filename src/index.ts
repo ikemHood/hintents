@@ -1,6 +1,11 @@
 #!/usr/bin/env node
+
+// Copyright (c) 2026 dotandev
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 import { Command } from 'commander';
 import { registerProtocolCommands } from './commands/protocol-handler';
+import { registerDebugCommand } from './commands/debug';
 
 const program = new Command();
 
@@ -9,8 +14,9 @@ program
     .description('Error Recovery and Simulation Tool (ERST) for Stellar')
     .version('1.0.0');
 
-// Register protocol-specific commands
+// Register commands
 registerProtocolCommands(program);
+registerDebugCommand(program);
 
 program.parse(process.argv);
 
