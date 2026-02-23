@@ -93,7 +93,7 @@ func (v *InteractiveViewer) handleCommand(command string) bool {
 		} else {
 			v.listSteps("10")
 		}
-	case "h", "help":
+	case "?", "h", "help":
 		v.showHelp()
 	case "q", "quit", "exit":
 		fmt.Printf("Goodbye! %s\n", visualizer.Symbol("wave"))
@@ -291,24 +291,33 @@ func (v *InteractiveViewer) listSteps(countStr string) {
 	}
 }
 
-// showHelp displays available commands
+// showHelp displays available keyboard shortcuts as an overlay/modal
 func (v *InteractiveViewer) showHelp() {
-	fmt.Printf("\n%s Available Commands\n", visualizer.Symbol("book"))
-	fmt.Println("=====================")
+	// we treat this as a modal overlay; just print a bordered section
+	fmt.Printf("\n%s Keyboard Shortcuts\n", visualizer.Symbol("book"))
+	fmt.Println("======================")
 	fmt.Println("Navigation:")
-	fmt.Println("  n, next, forward     - Step forward")
-	fmt.Println("  p, prev, back        - Step backward")
-	fmt.Println("  j, jump <step>       - Jump to specific step")
+	fmt.Println("  n, next, forward        - Step forward")
+	fmt.Println("  p, prev, back           - Step backward")
+	fmt.Println("  j, jump <step>          - Jump to specific step")
 	fmt.Println()
-	fmt.Println("Display:")
-	fmt.Println("  s, show, state       - Show current state")
-	fmt.Println("  r, reconstruct [step] - Reconstruct state")
-	fmt.Println("  l, list [count]      - List steps (default: 10)")
-	fmt.Println("  i, info              - Show navigation info")
+	fmt.Println("Display/Tree:")
+	fmt.Println("  s, show, state          - Show current state")
+	fmt.Println("  r, reconstruct [step]   - Reconstruct state")
+	fmt.Println("  l, list [count]         - List steps (default: 10)")
+	fmt.Println("  e                       - Expand all nodes")
+	fmt.Println("  c                       - Collapse all nodes")
+	fmt.Println("  v                       - Toggle view modes")
+	fmt.Println()
+	fmt.Println("Search:")
+	fmt.Println("  /                       - Start search")
+	fmt.Println("  n                       - Next search match")
+	fmt.Println("  N                       - Previous search match")
+	fmt.Println("  ESC                     - Clear search / cancel input")
 	fmt.Println()
 	fmt.Println("Other:")
-	fmt.Println("  h, help              - Show this help")
-	fmt.Println("  q, quit, exit        - Exit viewer")
+	fmt.Println("  ?, h, help              - Show this help overlay")
+	fmt.Println("  q, quit, exit           - Exit viewer")
 }
 
 // Helper functions
