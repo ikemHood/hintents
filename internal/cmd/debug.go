@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/dotandev/hintents/internal/config"
+	"github.com/dotandev/hintents/internal/decoder"
 	"github.com/dotandev/hintents/internal/errors"
 	"github.com/dotandev/hintents/internal/logger"
 	"github.com/dotandev/hintents/internal/rpc"
@@ -50,6 +52,7 @@ var (
 	watchFlag           bool
 	watchTimeoutFlag    int
 	protocolVersionFlag uint32
+	themeFlag           string
 )
 
 // DebugCommand holds dependencies for the debug command
@@ -221,6 +224,13 @@ Local WASM Replay Mode:
 			logger.SetLevel(slog.LevelWarn)
 		}
 
+		// Apply theme if specified, otherwise auto-detect
+		if themeFlag != "" {
+			visualizer.SetTheme(visualizer.Theme(themeFlag))
+		} else {
+			visualizer.SetTheme(visualizer.DetectTheme())
+		}
+
 		// Demo mode: print sample output for testing color detection (no network)
 		if demoMode {
 			return runDemoMode(cmdArgs)
@@ -258,9 +268,19 @@ Local WASM Replay Mode:
 		defer span.End()
 
 		var horizonURL string
+		token := rpcTokenFlag
+		if token == "" {
+			token = os.Getenv("ERST_RPC_TOKEN")
+		}
+		if token == "" {
+			if cfg, err := config.Load(); err == nil && cfg.RPCToken != "" {
+				token = cfg.RPCToken
+			}
+		}
+
 		opts := []rpc.ClientOption{
 			rpc.WithNetwork(rpc.Network(networkFlag)),
-			rpc.WithToken(rpcTokenFlag),
+			rpc.WithToken(token),
 		}
 
 		if rpcURLFlag != "" {
@@ -270,6 +290,17 @@ Local WASM Replay Mode:
 			}
 			opts = append(opts, rpc.WithAltURLs(urls))
 			horizonURL = urls[0]
+		} else {
+			cfg, err := config.Load()
+			if err == nil {
+				if len(cfg.RpcUrls) > 0 {
+					opts = append(opts, rpc.WithAltURLs(cfg.RpcUrls))
+					horizonURL = cfg.RpcUrls[0]
+				} else if cfg.RpcUrl != "" {
+					opts = append(opts, rpc.WithHorizonURL(cfg.RpcUrl))
+					horizonURL = cfg.RpcUrl
+				}
+			}
 		}
 
 		client, err := rpc.NewClient(opts...)
@@ -411,6 +442,13 @@ Local WASM Replay Mode:
 					return errors.WrapSimulationFailed(err, "")
 				}
 				printSimulationResult(networkFlag, simResp)
+				// Fetch contract bytecode on demand for any contract calls in the trace; cache via RPC client
+				if client != nil && simResp != nil && len(simResp.DiagnosticEvents) > 0 {
+					contractIDs := collectContractIDsFromDiagnosticEvents(simResp.DiagnosticEvents)
+					if len(contractIDs) > 0 {
+						_, _ = rpc.FetchBytecodeForTraceContractCalls(ctx, client, contractIDs, nil)
+					}
+				}
 			} else {
 				// Comparison Run
 				var wg sync.WaitGroup
@@ -501,6 +539,13 @@ Local WASM Replay Mode:
 				if compareErr != nil {
 					return errors.WrapRPCConnectionFailed(compareErr)
 				}
+				// Fetch contract bytecode on demand for contract calls in the trace; cache via RPC client
+				if client != nil && primaryResult != nil && len(primaryResult.DiagnosticEvents) > 0 {
+					contractIDs := collectContractIDsFromDiagnosticEvents(primaryResult.DiagnosticEvents)
+					if len(contractIDs) > 0 {
+						_, _ = rpc.FetchBytecodeForTraceContractCalls(ctx, client, contractIDs, nil)
+					}
+				}
 
 				simResp = primaryResult // Use primary for further analysis
 				printSimulationResult(networkFlag, primaryResult)
@@ -512,6 +557,20 @@ Local WASM Replay Mode:
 
 		if lastSimResp == nil {
 			return errors.WrapSimulationLogicError("no simulation results generated")
+		}
+
+		// Analysis: Error Suggestions (Heuristic-based)
+		if len(lastSimResp.Events) > 0 {
+			suggestionEngine := decoder.NewSuggestionEngine()
+			
+			// Decode events for analysis
+			callTree, err := decoder.DecodeEvents(lastSimResp.Events)
+			if err == nil && callTree != nil {
+				suggestions := suggestionEngine.AnalyzeCallTree(callTree)
+				if len(suggestions) > 0 {
+					fmt.Print(decoder.FormatSuggestions(suggestions))
+				}
+			}
 		}
 
 		// Analysis: Security
@@ -657,13 +716,25 @@ func runLocalWasmReplay() error {
 	fmt.Printf("%s Executing contract locally...\n", visualizer.Symbol("play"))
 	resp, err := runner.Run(req)
 	if err != nil {
-		fmt.Printf("%s Execution failed: %v\n", visualizer.Error(), err)
+		fmt.Printf("%s Technical failure: %v\n", visualizer.Error(), err)
 		return err
 	}
 
 	// Display results
 	fmt.Println()
-	fmt.Printf("%s Execution completed successfully\n", visualizer.Success())
+	if resp.Status == "error" {
+		fmt.Printf("%s Execution failed\n", visualizer.Error())
+		if resp.Error != "" {
+			fmt.Printf("Error: %s\n", resp.Error)
+		}
+
+		if resp.SourceLocation != nil {
+			fmt.Println()
+			displaySourceLocation(resp.SourceLocation)
+		}
+	} else {
+		fmt.Printf("%s Execution completed successfully\n", visualizer.Success())
+	}
 	fmt.Println()
 
 	if len(resp.Logs) > 0 {
@@ -775,6 +846,21 @@ func extractLedgerKeys(metaXdr string) ([]string, error) {
 		res = append(res, k)
 	}
 	return res, nil
+}
+
+// collectContractIDsFromDiagnosticEvents returns unique contract IDs from diagnostic events (trace).
+func collectContractIDsFromDiagnosticEvents(events []simulator.DiagnosticEvent) []string {
+	seen := make(map[string]struct{})
+	var ids []string
+	for _, e := range events {
+		if e.ContractID != nil && *e.ContractID != "" {
+			if _, ok := seen[*e.ContractID]; !ok {
+				seen[*e.ContractID] = struct{}{}
+				ids = append(ids, *e.ContractID)
+			}
+		}
+	}
+	return ids
 }
 
 func printSimulationResult(network string, res *simulator.SimulationResponse) {
@@ -935,6 +1021,73 @@ func init() {
 	debugCmd.Flags().BoolVar(&watchFlag, "watch", false, "Poll for transaction on-chain before debugging")
 	debugCmd.Flags().IntVar(&watchTimeoutFlag, "watch-timeout", 30, "Timeout in seconds for watch mode")
 	debugCmd.Flags().Uint32Var(&protocolVersionFlag, "protocol-version", 0, "Override protocol version for simulation (20, 21, 22, etc)")
+	debugCmd.Flags().StringVar(&themeFlag, "theme", "", "Color theme (default, deuteranopia, protanopia, tritanopia, high-contrast)")
 
 	rootCmd.AddCommand(debugCmd)
+}
+func displaySourceLocation(loc *simulator.SourceLocation) {
+	fmt.Printf("%s Location: %s:%d:%d\n", visualizer.Symbol("location"), loc.File, loc.Line, loc.Column)
+
+	// Try to find the file
+	content, err := os.ReadFile(loc.File)
+	if err != nil {
+		// Try to find in current directory or src
+		if c, err := os.ReadFile(filepath.Join("src", loc.File)); err == nil {
+			content = c
+		} else {
+			return
+		}
+	}
+
+	lines := strings.Split(string(content), "\n")
+	if int(loc.Line) > len(lines) {
+		return
+	}
+
+	// Show context
+	start := int(loc.Line) - 3
+	if start < 0 {
+		start = 0
+	}
+	end := int(loc.Line) + 2
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	fmt.Println()
+	for i := start; i < end; i++ {
+		lineNum := i + 1
+		prefix := "  "
+		if lineNum == int(loc.Line) {
+			prefix = "> "
+		}
+
+		fmt.Printf("%s %4d | %s\n", prefix, lineNum, lines[i])
+
+		// Highlight the token if this is the failing line
+		if lineNum == int(loc.Line) {
+			// Calculate exact indentation to line up with the printed line
+			// prefix (2) + lineNum (4) + pipe (3) = 9 spaces
+			markerIndent := strings.Repeat(" ", 9)
+			offset := int(loc.Column) - 1
+			if offset < 0 {
+				offset = 0
+			}
+
+			highlightLen := 1
+			if loc.ColumnEnd != nil && *loc.ColumnEnd > loc.Column {
+				highlightLen = int(*loc.ColumnEnd - loc.Column)
+			}
+
+			// Don't exceed line length
+			if offset < len(lines[i]) {
+				if offset+highlightLen > len(lines[i]) {
+					highlightLen = len(lines[i]) - offset
+				}
+				marker := strings.Repeat(" ", offset) + strings.Repeat("^", highlightLen)
+				fmt.Printf("      | %s%s\n", markerIndent[:2], marker)
+			}
+		}
+	}
+	fmt.Println()
 }
