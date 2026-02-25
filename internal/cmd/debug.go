@@ -401,6 +401,13 @@ Local WASM Replay Mode:
 					return fmt.Errorf("simulation failed: %w", err)
 				}
 				printSimulationResult(networkFlag, simResp)
+				// Fetch contract bytecode on demand for any contract calls in the trace; cache via RPC client
+				if client != nil && simResp != nil && len(simResp.DiagnosticEvents) > 0 {
+					contractIDs := collectContractIDsFromDiagnosticEvents(simResp.DiagnosticEvents)
+					if len(contractIDs) > 0 {
+						_, _ = rpc.FetchBytecodeForTraceContractCalls(ctx, client, contractIDs, nil)
+					}
+				}
 			} else {
 				// Comparison Run
 				var wg sync.WaitGroup
@@ -472,6 +479,13 @@ Local WASM Replay Mode:
 				}
 				if compareErr != nil {
 					return fmt.Errorf("compare network error: %w", compareErr)
+				}
+				// Fetch contract bytecode on demand for contract calls in the trace; cache via RPC client
+				if client != nil && primaryResult != nil && len(primaryResult.DiagnosticEvents) > 0 {
+					contractIDs := collectContractIDsFromDiagnosticEvents(primaryResult.DiagnosticEvents)
+					if len(contractIDs) > 0 {
+						_, _ = rpc.FetchBytecodeForTraceContractCalls(ctx, client, contractIDs, nil)
+					}
 				}
 
 				simResp = primaryResult // Use primary for further analysis
@@ -747,6 +761,21 @@ func extractLedgerKeys(metaXdr string) ([]string, error) {
 		res = append(res, k)
 	}
 	return res, nil
+}
+
+// collectContractIDsFromDiagnosticEvents returns unique contract IDs from diagnostic events (trace).
+func collectContractIDsFromDiagnosticEvents(events []simulator.DiagnosticEvent) []string {
+	seen := make(map[string]struct{})
+	var ids []string
+	for _, e := range events {
+		if e.ContractID != nil && *e.ContractID != "" {
+			if _, ok := seen[*e.ContractID]; !ok {
+				seen[*e.ContractID] = struct{}{}
+				ids = append(ids, *e.ContractID)
+			}
+		}
+	}
+	return ids
 }
 
 func printSimulationResult(network string, res *simulator.SimulationResponse) {
