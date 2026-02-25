@@ -18,3 +18,5 @@ wasmparser = "0.208"
 
 [dev-dependencies]
 wat = "1.0"
+gimli = "0.28"
+addr2line = "0.21"
