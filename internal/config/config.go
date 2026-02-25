@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/dotandev/hintents/internal/errors"
 )
 
 type Network string
@@ -44,6 +46,13 @@ type Config struct {
 	// CrashSentryDSN is a Sentry Data Source Name for crash reporting.
 	// Set via crash_sentry_dsn in config or ERST_SENTRY_DSN.
 	CrashSentryDSN string `json:"crash_sentry_dsn,omitempty"`
+	RpcUrl        string   `json:"rpc_url,omitempty"`
+	RpcUrls       []string `json:"rpc_urls,omitempty"`
+	Network       Network  `json:"network,omitempty"`
+	SimulatorPath string   `json:"simulator_path,omitempty"`
+	LogLevel      string   `json:"log_level,omitempty"`
+	CachePath     string   `json:"cache_path,omitempty"`
+	RPCToken      string   `json:"rpc_token,omitempty"`
 }
 
 var defaultConfig = &Config{
@@ -77,12 +86,12 @@ func LoadConfig() (*Config, error) {
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, errors.WrapConfigError("failed to read config file", err)
 	}
 
 	config := DefaultConfig()
 	if err := json.Unmarshal(data, config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+		return nil, errors.WrapConfigError("failed to parse config file", err)
 	}
 
 	return config, nil
@@ -105,6 +114,18 @@ func Load() (*Config, error) {
 	switch strings.ToLower(os.Getenv("ERST_CRASH_REPORTING")) {
 	case "1", "true", "yes":
 		cfg.CrashReporting = true
+	}
+
+	if urlsEnv := os.Getenv("ERST_RPC_URLS"); urlsEnv != "" {
+		cfg.RpcUrls = strings.Split(urlsEnv, ",")
+		for i := range cfg.RpcUrls {
+			cfg.RpcUrls[i] = strings.TrimSpace(cfg.RpcUrls[i])
+		}
+	} else if urlsEnv := os.Getenv("STELLAR_RPC_URLS"); urlsEnv != "" {
+		cfg.RpcUrls = strings.Split(urlsEnv, ",")
+		for i := range cfg.RpcUrls {
+			cfg.RpcUrls[i] = strings.TrimSpace(cfg.RpcUrls[i])
+		}
 	}
 
 	if err := cfg.loadFromFile(); err != nil {
@@ -162,11 +183,31 @@ func (c *Config) parseTOML(content string) error {
 		}
 
 		key := strings.TrimSpace(parts[0])
-		value := strings.Trim(strings.TrimSpace(parts[1]), "\"'")
+		rawVal := strings.TrimSpace(parts[1])
+
+		if key == "rpc_urls" && strings.HasPrefix(rawVal, "[") && strings.HasSuffix(rawVal, "]") {
+			// Basic array parsing for TOML-like lists: ["a", "b"]
+			rawVal = strings.Trim(rawVal, "[]")
+			parts := strings.Split(rawVal, ",")
+			var urls []string
+			for _, p := range parts {
+				urls = append(urls, strings.Trim(strings.TrimSpace(p), "\"'"))
+			}
+			c.RpcUrls = urls
+			continue
+		}
+
+		value := strings.Trim(rawVal, "\"'")
 
 		switch key {
 		case "rpc_url":
 			c.RpcUrl = value
+		case "rpc_urls":
+			// Fallback if not an array but comma-separated string
+			c.RpcUrls = strings.Split(value, ",")
+			for i := range c.RpcUrls {
+				c.RpcUrls[i] = strings.TrimSpace(c.RpcUrls[i])
+			}
 		case "network":
 			c.Network = Network(value)
 		case "simulator_path":
@@ -199,17 +240,17 @@ func SaveConfig(config *Config) error {
 	// Ensure config directory exists
 	configDir := filepath.Dir(configPath)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
+		return errors.WrapConfigError("failed to create config directory", err)
 	}
 
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+		return errors.WrapConfigError("failed to marshal config", err)
 	}
 
 	// Write with restricted permissions (owner only)
 	if err := os.WriteFile(configPath, data, 0600); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
+		return errors.WrapConfigError("failed to write config file", err)
 	}
 
 	return nil
@@ -217,11 +258,11 @@ func SaveConfig(config *Config) error {
 
 func (c *Config) Validate() error {
 	if c.RpcUrl == "" {
-		return fmt.Errorf("rpc_url cannot be empty")
+		return errors.WrapValidationError("rpc_url cannot be empty")
 	}
 
 	if c.Network != "" && !validNetworks[string(c.Network)] {
-		return fmt.Errorf("invalid network: %s (valid: public, testnet, futurenet, standalone)", c.Network)
+		return errors.WrapInvalidNetwork(string(c.Network))
 	}
 
 	return nil
