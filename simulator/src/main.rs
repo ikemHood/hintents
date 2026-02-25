@@ -10,6 +10,7 @@ mod source_map_cache;
 mod source_mapper;
 mod vm;
 mod types;
+mod wasm;
 
 use crate::gas_optimizer::{BudgetMetrics, GasOptimizationAdvisor, CPU_LIMIT, MEMORY_LIMIT};
 use crate::source_mapper::SourceMapper;
@@ -274,6 +275,18 @@ fn main() {
     // Initialize Host
     let sim_host = runner::SimHost::new(None, request.resource_calibration.clone());
     let host = sim_host.inner;
+
+    // --- START: Local WASM Loading Integration (Issue #70) ---
+    if let Some(path) = &request.wasm_path {
+        match wasm::load_wasm_from_path(path) {
+            Ok(wasm_bytes) => match host.upload_contract_wasm(wasm_bytes) {
+                Ok(hash) => eprintln!("Successfully loaded local WASM. Hash: {:?}", hash),
+                Err(e) => send_error(format!("Host failed to upload local WASM: {:?}", e)),
+            },
+            Err(e) => send_error(format!("Local WASM loading failed: {}", e)),
+        }
+    }
+    // --- END: Local WASM Loading Integration ---
 
     let mut loaded_entries_count = 0;
 
