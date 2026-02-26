@@ -428,13 +428,6 @@ type GetLedgerEntriesRequest struct {
 	Params  []interface{} `json:"params"`
 }
 
-type LedgerEntryResult = struct {
-	Key                string `json:"key"`
-	Xdr                string `json:"xdr"`
-	LastModifiedLedger int    `json:"lastModifiedLedgerSeq"`
-	LiveUntilLedger    int    `json:"liveUntilLedgerSeq"`
-}
-
 type GetLedgerEntriesResponse struct {
 	Jsonrpc string `json:"jsonrpc"`
 	ID      int    `json:"id"`
